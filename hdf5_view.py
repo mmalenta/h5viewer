@@ -1,6 +1,5 @@
 import argparse as ap
 import cmd
-import dedisp
 import glob
 import h5py as h5
 import io
@@ -53,27 +52,75 @@ class Interpreter(cmd.Cmd):
     def do_plot(self, arg):
         """Plot the data. Relevant options:
         * jpg - plots the candidate analysis jpg
-        * fil [mask] - plots the original filterbank file; mask (optional) - apply mask before plotting
-        * mask - plots the mask file
-        * fetch dm/freq - plots dm-time or frequency time FETCH output
+        * fil - plots the original filterbank file
+        * mask - plots the applied mask
+        * fetch dm/freq - plots dm-time or frequency time FETCH output (if no dm/freq provided, it will plot a combined plot)
+
+        Additional options (available for certain types of plots only, as indicated):
+
+        * masked (fil) - plots the mask file
+        * normalised (fil) - normalise the data before plotting (subtract the mean and divide by standard deviations on channel-by-channel basis)
+        * all (jpg, fil, fetch) - plot all files in the current directory
+        * save (jpg, fil, fetch) - save the plot(s) to disk (default for the 'all' option)
         """
 
         split_arg = arg.split()
-        plot_type = split_arg[0]
+        
+        # Parse the plot type
+        allowed_types = ['fil', 'jpg', 'fetch', 'mask']
+        allowed_passed = [a in split_arg for a in allowed_types]
+
+        if allowed_passed.count(True) != 1:
+            print("Need to pass a single plot type from the following list: [jpg, fil, fetch]")
+            return None
+
+        plot_type = allowed_types[allowed_passed.index(True)]
+
+        # Parse additional options
+        mask_data = False
+        plot_all = False
+        save_plots = False
+        normalise = False
+
+        def check_option(option: str) -> bool:
+
+            if option in split_arg:
+                return True
+            else:
+                return False
+
+        mask_data = check_option('masked')
+        normalise = check_option('normalised')
+        plot_all = check_option('all')
+        save_plots = check_option('save')
+        # NOTE: We do not want to potentially display hundreds of candidate plots - just save then to disk
+        if plot_all == True:
+            save_plots = True
 
         if plot_type == "jpg":
+        
             self.__h5viewer.PlotJPG()
+        
         elif plot_type == "fil":
-
-            masked = False
-            if len(split_arg) > 1:
-                if split_arg[1] == "masked":
-                    masked = True
-
-            self.__h5viewer.PlotFil(masked, True)
+        
+            self.__h5viewer.PlotFil(mask_data=mask_data, normalise=normalise, plot_all=plot_all, save_plots=save_plots)
+        
         elif plot_type == "fetch":
-            axis = split_arg[1]
-            self.__h5viewer.PlotFetch(axis)
+            
+            allowed_types = ['dm', 'freq']
+            allowed_passed = [a in split_arg for a in allowed_types]
+
+            if allowed_passed.count(True) > 1:
+                print("Please pass one or less types from the following list: [dm, freq]\nIf no types are passed, a combined plot will be generated")
+                return None
+
+            if allowed_passed.count(True) == 0:
+                axis = "combined"
+            else:
+                axis = allowed_types[allowed_passed.index(True)]
+
+            self.__h5viewer.PlotFetch(axis, plot_all=plot_all, save_plots=save_plots)
+
         elif plot_type == "mask":
             self.__h5viewer.PlotMask()
         else:
@@ -152,9 +199,13 @@ class H5Viewer:
         print("Contents of the HDF5 file:")
         self.CheckKeys('/')
 
-    def Load(self, file_name):
+    def Load(self, file_name, join_base=True):
 
-        self._file_name = file_name
+        if join_base == True:
+            self._file_name = os.path.join(self._base_dir, file_name)
+        else:
+            self._file_name = file_name
+        
         if self._file_name != None:
             try:
                 self._file = h5.File(self._file_name, 'r')
@@ -252,57 +303,111 @@ class H5Viewer:
         im = Image.open(io.BytesIO(plot_dataset[:]))
         im.show()
 
-    def PlotFil(self, masked, normalised):
-    
-        fil_array = self.ReadFil()
+    def PlotFil(self, mask_data=False, normalise=False, plot_all=False, save_plots=False):
 
-        fmt = lambda x: "{:.2f}".format(x)
+        cand_files = [self._file_name]
 
-        freq_pos = np.linspace(0, self._file['/cand/search/filterbank'].attrs['nchans'], num=5)
-        freq_label = [fmt(label) for label in (self._file['/cand/search/filterbank'].attrs['fch1'] + freq_pos * self._file['/cand/search/filterbank'].attrs['foff']) ]
+        if plot_all:
+            cand_files = sorted(glob.glob(os.path.join(self._base_dir, '5*.hdf5')))
 
-        time_pos = np.linspace(0, fil_array.shape[1], num=5)
-        time_label = [fmt(label) for label in (time_pos * self._file['/cand/search/filterbank'].attrs['tsamp'])]
+        for cand_file in cand_files:
+            print(cand_file)
+            self.Load(cand_file, join_base=False)
+            fil_array = self.ReadFil()
 
-        if masked:
-            mask_dataset = np.asarray(self._file['/cand/search/filterbank/mask'])
-            fil_array = fil_array * mask_dataset[:, np.newaxis]
+            fmt = lambda x: "{:.2f}".format(x)
 
-        if normalised:
+            freq_pos = np.linspace(0, self._file['/cand/search/filterbank'].attrs['nchans'], num=5)
+            freq_label = [fmt(label) for label in (self._file['/cand/search/filterbank'].attrs['fch1'] + freq_pos * self._file['/cand/search/filterbank'].attrs['foff']) ]
 
-            band_mean = np.mean(fil_array, axis=1)
-            band_std = np.std(fil_array, axis=1)
-            with np.errstate(divide='ignore', invalid='ignore'):
+            time_pos = np.linspace(0, fil_array.shape[1], num=5)
+            time_label = [fmt(label) for label in (time_pos * self._file['/cand/search/filterbank'].attrs['tsamp'])]
+
+            if mask_data:
+                mask_dataset = np.asarray(self._file['/cand/search/filterbank/mask'])
+                fil_array = fil_array * mask_dataset[:, np.newaxis]
+
+            if normalise:
+                band_mean = np.mean(fil_array, axis=1)
+                band_std = np.std(fil_array, axis=1)
+                band_std[band_std == 0] = 1
                 fil_array = np.nan_to_num((fil_array - band_mean[:, np.newaxis]) / band_std[:, np.newaxis])
 
-        fig = plt.figure(figsize=(9,6))
-        ax = fig.gca()
-        ax.imshow(fil_array, aspect='auto', cmap='binary', interpolation='none')
-        ax.set_xticks(time_pos)
-        ax.set_xticklabels(time_label, fontsize=8)
-        ax.set_xlabel('Time [s]')
+            fig = plt.figure(figsize=(9,6))
+            ax = fig.gca()
+            ax.imshow(fil_array, aspect='auto', cmap='binary', interpolation='none')
+            ax.set_xticks(time_pos)
+            ax.set_xticklabels(time_label, fontsize=8)
+            ax.set_xlabel('Time [s]')
 
-        ax.set_yticks(freq_pos)
-        ax.set_yticklabels(freq_label, fontsize=8)
-        ax.set_ylabel('Frequency [MHz')
+            ax.set_yticks(freq_pos)
+            ax.set_yticklabels(freq_label, fontsize=8)
+            ax.set_ylabel('Frequency [MHz')
 
-        plt.show(block=False)
+            if save_plots:
+                plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file['/cand/search'].attrs['mjd']) + '_dm_' + str(self._file['/cand/search'].attrs['dm']) + '_beam_' + str(self._file['/cand/search'].attrs['beam']) + str(self._file['/cand/search'].attrs['beam_type']) + '_fil.png')
+                plt.savefig(plot_name)
+                fig.clear()
+                plt.close(fig)
+            else:
+                plt.show(block=False)
 
-    def PlotFetch(self, type):
+            if plot_all:
+                self.Reset()
 
-        plot_dataset = np.array(self._file['/cand/fetch/' + type + '_time'])
+    def PlotFetch(self, axis, plot_all=False, save_plots=False):
 
-        if type == 'freq':
-            plot_dataset = plot_dataset.T
 
-        cand_label = self._file['/cand/fetch'].attrs['label']
-        cand_prob = self._file['/cand/fetch'].attrs['probability']
-        fig = plt.figure(figsize=(5,5))
-        ax = fig.gca()
-        ax.imshow(plot_dataset, aspect='auto', cmap='binary', interpolation='none')
-        ax.text(0.1, 0.95, 'Label: ' + str(cand_label), color='firebrick', fontweight='bold',  transform=ax.transAxes)
-        ax.text(0.1, 0.9, 'Probability: ' + "{:.4f}".format(cand_prob * 100.0) + "%", color='firebrick', fontweight='bold', transform=ax.transAxes)
-        plt.show(block=False)
+        cand_files = [self._file_name]
+
+        if plot_all:
+            cand_files = sorted(glob.glob(os.path.join(self._base_dir, '5*.hdf5')))
+
+        for cand_file in cand_files:
+            print(cand_file)
+            self.Load(cand_file, join_base=False)
+
+            fig = None
+            ax = None
+
+            if axis == 'combined':
+                fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+
+                ax[0].imshow(np.array(self._file['/cand/fetch/dm_time']), aspect='auto', cmap='binary', interpolation='none')
+                ax[1].imshow(np.array(self._file['/cand/fetch/freq_time']).T, aspect='auto', cmap='binary', interpolation='none')
+            else:
+                fig = plt.figure(figsize=(5,5))
+                ax = fig.gca()
+
+                plot_dataset = np.array(self._file['/cand/fetch/' + axis + '_time'])
+                plot_dataset = plot_dataset.T
+                ax.imshow(plot_dataset, aspect='auto', cmap='binary', interpolation='none')
+                
+            if axis != 'combined':
+                cand_label = self._file['/cand/fetch'].attrs['label']
+                cand_prob = self._file['/cand/fetch'].attrs['probability']
+                ax.text(0.1, 0.95, 'Label: ' + str(cand_label), color='firebrick', fontweight='bold',  transform=ax.transAxes)
+                ax.text(0.1, 0.9, 'Probability: ' + "{:.4f}".format(cand_prob * 100.0) + "%", color='firebrick', fontweight='bold', transform=ax.transAxes)
+            else:
+                cand_dm = self._file['/cand/search'].attrs['dm']
+                ax[0].text(0.0, 1.05, 'DM: ' + "{:.2f}".format(cand_dm), color='black', fontweight='bold', transform=ax[0].transAxes)
+                ticks_labels = ["{:.2f}".format(dm) for dm in np.linspace(0, 2 * cand_dm, 6, dtype=np.float32)]
+                ax[0].set_xlabel('Time sample')
+                ax[0].set_yticks(np.linspace(0, 256, 6))
+                ax[0].set_yticklabels(ticks_labels)
+                ax[0].set_ylabel(r'Trial DM [pc $cm^{-3}$]')
+                ax[1].set_xlabel('Time sample')
+                ax[1].set_ylabel('Frequency channel')
+            if save_plots:
+                plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file['/cand/search'].attrs['mjd']) + '_dm_' + str(self._file['/cand/search'].attrs['dm']) + '_beam_' + str(self._file['/cand/search'].attrs['beam']) + str(self._file['/cand/search'].attrs['beam_type']) + '_fetch_' + axis + '.png')
+                plt.savefig(plot_name)
+                fig.clear()
+                plt.close(fig)
+            else:
+                plt.show(block=False)
+
+            if plot_all:
+                self.Reset()
 
     def PrintInfo(self, type):
 
