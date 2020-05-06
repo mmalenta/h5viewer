@@ -61,6 +61,7 @@ class Interpreter(cmd.Cmd):
         * masked (fil) - plots the mask file
         * normalised (fil) - normalise the data before plotting (subtract the mean and divide by standard deviations on channel-by-channel basis)
         * all (jpg, fil, fetch) - plot all files in the current directory
+        * original (fetch) - plot from the original FETCH candmaker.py HDF5 files
         * save (jpg, fil, fetch) - save the plot(s) to disk (default for the 'all' option)
         """
 
@@ -93,6 +94,7 @@ class Interpreter(cmd.Cmd):
         normalise = check_option('normalised')
         plot_all = check_option('all')
         save_plots = check_option('save')
+        original_fetch = check_option('original')
         # NOTE: We do not want to potentially display hundreds of candidate plots - just save then to disk
         if plot_all == True:
             save_plots = True
@@ -119,7 +121,7 @@ class Interpreter(cmd.Cmd):
             else:
                 axis = allowed_types[allowed_passed.index(True)]
 
-            self.__h5viewer.PlotFetch(axis, plot_all=plot_all, save_plots=save_plots)
+            self.__h5viewer.PlotFetch(axis, plot_all=plot_all, save_plots=save_plots, original=original_fetch)
 
         elif plot_type == "mask":
             self.__h5viewer.PlotMask()
@@ -308,7 +310,7 @@ class H5Viewer:
         cand_files = [self._file_name]
 
         if plot_all:
-            cand_files = sorted(glob.glob(os.path.join(self._base_dir, '5*.hdf5')))
+            cand_files = sorted(glob.glob(os.path.join(self._base_dir, 'mjd_.hdf5')))
 
         for cand_file in cand_files:
             print(cand_file)
@@ -355,13 +357,15 @@ class H5Viewer:
             if plot_all:
                 self.Reset()
 
-    def PlotFetch(self, axis, plot_all=False, save_plots=False):
-
+    def PlotFetch(self, axis, plot_all=False, save_plots=False, original=False):
 
         cand_files = [self._file_name]
 
         if plot_all:
-            cand_files = sorted(glob.glob(os.path.join(self._base_dir, '5*.hdf5')))
+            if original == False:
+                cand_files = sorted(glob.glob(os.path.join(self._base_dir, 'mjd*.hdf5')))
+            else:
+                cand_files = sorted(glob.glob(os.path.join(self._base_dir, '[!mjd]*.hdf5')))
 
         for cand_file in cand_files:
             print(cand_file)
@@ -373,23 +377,47 @@ class H5Viewer:
             if axis == 'combined':
                 fig, ax = plt.subplots(1, 2, figsize=(10, 5))
 
-                ax[0].imshow(np.array(self._file['/cand/fetch/dm_time']), aspect='auto', cmap='binary', interpolation='none')
-                ax[1].imshow(np.array(self._file['/cand/fetch/freq_time']).T, aspect='auto', cmap='binary', interpolation='none')
+                if original == False:
+                    ax[0].imshow(np.array(self._file['/cand/fetch/dm_time']), aspect='auto', cmap='binary', interpolation='none')
+                    ax[1].imshow(np.array(self._file['/cand/fetch/freq_time']).T, aspect='auto', cmap='binary', interpolation='none')
+                else:
+                    ax[0].imshow(np.array(self._file['/data_dm_time']), aspect='auto', cmap='binary', interpolation='none')
+                    ax[1].imshow(np.array(self._file['/data_freq_time']).T, aspect='auto', cmap='binary', interpolation='none')
+            
             else:
                 fig = plt.figure(figsize=(5,5))
                 ax = fig.gca()
 
-                plot_dataset = np.array(self._file['/cand/fetch/' + axis + '_time'])
-                plot_dataset = plot_dataset.T
+                if original == False:
+                    plot_dataset = np.array(self._file['/cand/fetch/' + axis + '_time'])   
+                else:
+                    plot_dataset = np.array(self._file['/data_' + axis + '_time'])
+                
+                # NOTE: Transpose so that time axis is on the x axis
+                if axis == "freq":
+                        plot_dataset = plot_dataset.T
+
                 ax.imshow(plot_dataset, aspect='auto', cmap='binary', interpolation='none')
                 
             if axis != 'combined':
-                cand_label = self._file['/cand/fetch'].attrs['label']
-                cand_prob = self._file['/cand/fetch'].attrs['probability']
-                ax.text(0.1, 0.95, 'Label: ' + str(cand_label), color='firebrick', fontweight='bold',  transform=ax.transAxes)
-                ax.text(0.1, 0.9, 'Probability: ' + "{:.4f}".format(cand_prob * 100.0) + "%", color='firebrick', fontweight='bold', transform=ax.transAxes)
+
+                if original == False:
+                    cand_label = str(self._file['/cand/fetch'].attrs['label'])
+                    cand_prob = "{:.4f}".format(self._file['/cand/fetch'].attrs['probability'] * 100) + "%"
+                else:
+                    # NOTE: This information does not exist in the origina HDF5 file
+                    cand_label = "NA"
+                    cand_prob = "NA"
+                
+                ax.text(0.1, 0.95, 'Label: ' + cand_label, color='firebrick', fontweight='bold',  transform=ax.transAxes)
+                ax.text(0.1, 0.9, 'Probability: ' + cand_prob, color='firebrick', fontweight='bold', transform=ax.transAxes)
             else:
-                cand_dm = self._file['/cand/search'].attrs['dm']
+
+                if original == False:
+                    cand_dm = self._file['/cand/search'].attrs['dm']
+                else:
+                    cand_dm = self._file['/'].attrs['dm']
+
                 ax[0].text(0.0, 1.05, 'DM: ' + "{:.2f}".format(cand_dm), color='black', fontweight='bold', transform=ax[0].transAxes)
                 ticks_labels = ["{:.2f}".format(dm) for dm in np.linspace(0, 2 * cand_dm, 6, dtype=np.float32)]
                 ax[0].set_xlabel('Time sample')
@@ -399,7 +427,11 @@ class H5Viewer:
                 ax[1].set_xlabel('Time sample')
                 ax[1].set_ylabel('Frequency channel')
             if save_plots:
-                plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file['/cand/search'].attrs['mjd']) + '_dm_' + str(self._file['/cand/search'].attrs['dm']) + '_beam_' + str(self._file['/cand/search'].attrs['beam']) + str(self._file['/cand/search'].attrs['beam_type']) + '_fetch_' + axis + '.png')
+                if original == False:
+                    plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file['/cand/search'].attrs['mjd']) + '_dm_' + str(self._file['/cand/search'].attrs['dm']) + '_beam_' + str(self._file['/cand/search'].attrs['beam']) + '_fetch_' + axis + '.png')
+                else:
+                    plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file['/'].attrs['tstart']) + '_dm_' + str(self._file['/'].attrs['dm']) + '_fetch_' + axis + '.png')
+
                 plt.savefig(plot_name)
                 fig.clear()
                 plt.close(fig)
@@ -433,7 +465,7 @@ class H5Viewer:
             print("Directory %s does not exist!" % (directory))
             return False
 
-        cand_files = sorted(glob.glob(os.path.join(directory, 'beam*/5*.hdf5')))
+        cand_files = sorted(glob.glob(os.path.join(directory, 'mjd*.hdf5')))
         
         if disp == "list":
             negative_labels = 0
