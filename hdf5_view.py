@@ -9,6 +9,7 @@ import numpy as np
 import os
 
 from PIL import Image
+from typing import List
 
 # TODO: add mask display
 
@@ -43,11 +44,15 @@ class Interpreter(cmd.Cmd):
         * cand - prints candidate information
         * fetch - prints fetch classification
         """
+        
+        allowed_source = ['fil', 'cand', 'fetch']
+        passed_source = self.__check_passed_args(allowed_source, arg)
 
-        if arg not in ["fil", "cand", "fetch"]:
-            print("Did not recognise option '%s'" % (arg))
-        else:
-            self.__h5viewer.PrintInfo(arg)
+        if passed_source.count(True) != 1:
+            print("Need to pass a single plot type from the following list: [jpg, fil, fetch]")
+            return None
+
+        self.__h5viewer.PrintInfo(passed_source)
 
     def do_plot(self, arg):
         """Plot the data. Relevant options:
@@ -65,17 +70,17 @@ class Interpreter(cmd.Cmd):
         * save (jpg, fil, fetch) - save the plot(s) to disk (default for the 'all' option)
         """
 
-        split_arg = arg.split()
+        split_args = arg.split()
         
         # Parse the plot type
-        allowed_types = ['fil', 'jpg', 'fetch', 'mask']
-        allowed_passed = [a in split_arg for a in allowed_types]
+        allowed_source = ['fil', 'jpg', 'fetch', 'mask']
+        passed_source = self.__check_passed_args(allowed_source, split_args)
 
-        if allowed_passed.count(True) != 1:
+        if passed_source.count(True) != 1:
             print("Need to pass a single plot type from the following list: [jpg, fil, fetch]")
             return None
 
-        plot_type = allowed_types[allowed_passed.index(True)]
+        plot_type = allowed_source[passed_source.index(True)]
 
         # Parse additional options
         mask_data = False
@@ -83,34 +88,24 @@ class Interpreter(cmd.Cmd):
         save_plots = False
         normalise = False
 
-        def check_option(option: str) -> bool:
+        mask_data = self.__check_option(split_args, 'masked')
+        normalise = self.__check_option(split_args, 'normalised')
+        plot_all = self.__check_option(split_args, 'all')
+        save_plots = self.__check_option(split_args, 'save')
+        original_fetch = self.__check_option(split_args, 'original')
 
-            if option in split_arg:
-                return True
-            else:
-                return False
-
-        mask_data = check_option('masked')
-        normalise = check_option('normalised')
-        plot_all = check_option('all')
-        save_plots = check_option('save')
-        original_fetch = check_option('original')
         # NOTE: We do not want to potentially display hundreds of candidate plots - just save then to disk
         if plot_all == True:
             save_plots = True
 
         if plot_type == "jpg":
-        
             self.__h5viewer.PlotJPG()
-        
         elif plot_type == "fil":
-        
             self.__h5viewer.PlotFil(mask_data=mask_data, normalise=normalise, plot_all=plot_all, save_plots=save_plots)
-        
         elif plot_type == "fetch":
             
             allowed_types = ['dm', 'freq']
-            allowed_passed = [a in split_arg for a in allowed_types]
+            allowed_passed = [a in split_args for a in allowed_types]
 
             if allowed_passed.count(True) > 1:
                 print("Please pass one or less types from the following list: [dm, freq]\nIf no types are passed, a combined plot will be generated")
@@ -134,23 +129,57 @@ class Interpreter(cmd.Cmd):
 
     def do_set(self, arg):
 
-        split_arg = arg.split()
+        split_args = arg.split()
 
-        if len(split_arg) == 2:
-            self.__h5viewer.Set(*split_arg)
+        if len(split_args) == 2:
+            self.__h5viewer.Set(*split_args)
 
     def do_summary(self, arg):
+        """Display the summary of data in requested directory.
+        Format: summary [directory] [options]
+        Relevant options:
+        \tSource:
+        \t* aa - use aa information (MJD, width, DM, SNR)
+        \t* fetch - use fetch information (probability, label)
+        \t* combined - combine AA and FETCH information
 
-        split_arg = arg.split()
+        \tDisplay:
+        \t* list - print out the information
+        \t* plot - create a predefined plot (user-defined plots will be added in the future)
+        """
 
-        if len(split_arg) == 3 and (split_arg[1] in ["aa", "fetch", "combined", "all"]) and (split_arg[2] in ["list", "plot"]):
-            self.__h5viewer.Summary(*split_arg)
+        split_args = arg.split()
+        data_dir = split_args[0]
+        split_args = split_args[1:]
+
+        allowed_source = ["aa", "fetch", "combined"]
+        passed_source = self.__check_passed_args(allowed_source, split_args)
+
+        if passed_source.count(True) != 1:
+            print("Need to pass a single source type from the following list: [aa, fetch, combined]")
+            return None
+        data_source = allowed_source[passed_source.index(True)]
+
+        allowed_display = ["list", "plot"]
+        passed_display = self.__check_passed_args(allowed_display, split_args)
+        if passed_display.count(True) != 1:
+            print("Need to pass a single display type from the following list: [list, plot]")
+            return None
+        data_display = allowed_display[passed_display.index(True)]
+
+        self.__h5viewer.Summary(data_dir, data_source, data_display)
+
+    def __check_passed_args(self, allowed_types: List[str], split_args: List[str]) -> List[str]:
+
+        passed_types = [t in split_args for t in allowed_types]
+        return passed_types
+
+    def __check_option(self, split_args: List[str], option: str) -> bool:
+
+        if option in split_args:
+            return True
         else:
-            print("Did not recognise option '%s'" % arg)
-
-    #def precmd(self, arg):
-    #   print('\n')
-        #return arg.lower()
+            return False
 
 class H5Viewer:
 
@@ -554,7 +583,7 @@ class H5Viewer:
                 labels = []
 
                 cmap = matplotlib.colors.ListedColormap(['firebrick', 'darkgreen'])
-                boundaries = [0, 1]
+                boundaries = [0, 0.5, 1]
                 norm = matplotlib.colors.BoundaryNorm(boundaries, cmap.N, clip=True)
 
                 for cand_file in cand_files:
@@ -569,11 +598,12 @@ class H5Viewer:
 
                 fig = plt.figure(figsize=(9, 6))
                 ax = fig.gca()
-                scatter = ax.scatter(x = mjds, y = dms, s = snrs * 10, c = labels, cmap=cmap, alpha=0.5)
+                scatter = ax.scatter(x = mjds, y = dms, s = snrs * 10, c = labels, cmap=cmap, norm=norm, alpha=0.5)
                 ax.ticklabel_format(useOffset=False)
                 ax.set_yscale("log")
                 ax.set_xlim([min(mjds) - plot_pad, max(mjds) + plot_pad])
-                
+                ax.set_ylim([1, max(5001, max(dms) + 10)])
+
                 mjd_values = np.linspace(min(mjds), max(mjds), 5)
                 fmt = lambda x: "{:.6f}".format(x)
                 mdj_strings = [ fmt(label) for label in mjd_values ]
