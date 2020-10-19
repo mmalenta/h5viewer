@@ -42,14 +42,14 @@ class Interpreter(cmd.Cmd):
         """Print requested information. Relevant options:
         * fil - prints filterbank header information
         * cand - prints candidate information
-        * fetch - prints fetch classification
+        * ml - prints ML classification
         """
         
-        allowed_source = ['fil', 'cand', 'fetch']
+        allowed_source = ['fil', 'cand', 'ml']
         passed_source = self.__check_passed_args(allowed_source, arg)
 
         if passed_source.count(True) != 1:
-            print("Need to pass a single plot type from the following list: [jpg, fil, fetch]")
+            print("Need to pass a single plot type from the following list: [jpg, fil, ml]")
             return None
 
         self.__h5viewer.PrintInfo(passed_source)
@@ -59,13 +59,13 @@ class Interpreter(cmd.Cmd):
         * jpg - plots the candidate analysis jpg
         * fil - plots the original filterbank file
         * mask - plots the applied mask
-        * fetch dm/freq - plots dm-time or frequency time FETCH output (if no dm/freq provided, it will plot a combined plot)
+        * ml dm/freq - plots dm-time or frequency time FETCH output (if no dm/freq provided, it will plot a combined plot)
 
         Additional options (available for certain types of plots only, as indicated):
 
         * masked (fil) - plots the mask file
         * normalised (fil) - normalise the data before plotting (subtract the mean and divide by standard deviations on channel-by-channel basis)
-        * all (jpg, fil, fetch) - plot all files in the current directory
+        * all (jpg, fil, ml) - plot all files in the current directory
         * original (fetch) - plot from the original FETCH candmaker.py HDF5 files
         * save (jpg, fil, fetch) - save the plot(s) to disk (default for the 'all' option)
         """
@@ -73,11 +73,11 @@ class Interpreter(cmd.Cmd):
         split_args = arg.split()
         
         # Parse the plot type
-        allowed_source = ['fil', 'jpg', 'fetch', 'mask']
+        allowed_source = ['fil', 'jpg', 'ml', 'mask']
         passed_source = self.__check_passed_args(allowed_source, split_args)
 
         if passed_source.count(True) != 1:
-            print("Need to pass a single plot type from the following list: [jpg, fil, fetch]")
+            print("Need to pass a single plot type from the following list: [jpg, fil, ml]")
             return None
 
         plot_type = allowed_source[passed_source.index(True)]
@@ -102,7 +102,7 @@ class Interpreter(cmd.Cmd):
             self.__h5viewer.PlotJPG()
         elif plot_type == "fil":
             self.__h5viewer.PlotFil(mask_data=mask_data, normalise=normalise, plot_all=plot_all, save_plots=save_plots)
-        elif plot_type == "fetch":
+        elif plot_type == "ml":
             
             allowed_types = ['dm', 'freq']
             allowed_passed = [a in split_args for a in allowed_types]
@@ -116,7 +116,7 @@ class Interpreter(cmd.Cmd):
             else:
                 axis = allowed_types[allowed_passed.index(True)]
 
-            self.__h5viewer.PlotFetch(axis, plot_all=plot_all, save_plots=save_plots, original=original_fetch)
+            self.__h5viewer.PlotML(axis, plot_all=plot_all, save_plots=save_plots, original=original_fetch)
 
         elif plot_type == "mask":
             self.__h5viewer.PlotMask()
@@ -140,7 +140,7 @@ class Interpreter(cmd.Cmd):
         Relevant options:
         \tSource:
         \t* aa - use aa information (MJD, width, DM, SNR)
-        \t* fetch - use fetch information (probability, label)
+        \t* ml - use fetch information (probability, label)
         \t* combined - combine AA and FETCH information
 
         \tDisplay:
@@ -152,11 +152,13 @@ class Interpreter(cmd.Cmd):
         data_dir = split_args[0]
         split_args = split_args[1:]
 
-        allowed_source = ["aa", "fetch", "combined"]
+        print(split_args)
+
+        allowed_source = ["aa", "ml", "combined"]
         passed_source = self.__check_passed_args(allowed_source, split_args)
 
         if passed_source.count(True) != 1:
-            print("Need to pass a single source type from the following list: [aa, fetch, combined]")
+            print("Need to pass a single source type from the following list: [aa, ml, combined]")
             return None
         data_source = allowed_source[passed_source.index(True)]
 
@@ -250,8 +252,8 @@ class H5Viewer:
             print("Reading the filterbank file...")
             # Automatically decompressed if needed
             fil_dataset = self._file['/cand/search/filterbank/data']
-            nchans = self._file['/cand/search/filterbank'].attrs['nchans']
-            header_len = self._file['/cand/search/filterbank'].attrs['head_len']
+            nchans = self._file["/cand/detection"].attrs['nchans']
+            header_len = self._file["/cand/detection"].attrs['head_len']
             fil_array = np.reshape(np.array(fil_dataset[:], dtype='B')[header_len:], (-1, nchans)).T
             self._fil_array = np.copy(fil_array)
             mean = np.mean(self._fil_array, axis=1)
@@ -266,28 +268,28 @@ class H5Viewer:
     def ReadInfo(self, type):
 
         if len(self._fil_header) == 0:
-            self._fil_header['tstart'] = self._file['/cand/search/filterbank'].attrs['tstart']
-            self._fil_header['tsamp'] = self._file['/cand/search/filterbank'].attrs['tsamp']
-            self._fil_header['nbits'] = self._file['/cand/search/filterbank'].attrs['nbits']
-            self._fil_header['nchans'] = self._file['/cand/search/filterbank'].attrs['nchans']
-            self._fil_header['fch1'] = self._file['/cand/search/filterbank'].attrs['fch1']
-            self._fil_header['foff'] = self._file['/cand/search/filterbank'].attrs['foff']
-            self._fil_header['src_raj'] = self._file['/cand/search/filterbank'].attrs['src_raj']
-            self._fil_header['src_dej'] = self._file['/cand/search/filterbank'].attrs['src_dej']
+            self._fil_header['tstart'] = self._file["/cand/detection"].attrs['tstart']
+            self._fil_header['tsamp'] = self._file["/cand/detection"].attrs['tsamp']
+            self._fil_header['nbits'] = self._file["/cand/detection"].attrs['nbits']
+            self._fil_header['nchans'] = self._file["/cand/detection"].attrs['nchans']
+            self._fil_header['fch1'] = self._file["/cand/detection"].attrs['fch1']
+            self._fil_header['foff'] = self._file["/cand/detection"].attrs['foff']
+            self._fil_header["ra"] = self._file["/cand/detection"].attrs["ra"]
+            self._fil_header["dec"] = self._file["/cand/detection"].attrs["dej"]
 
         if len(self._cand_info) == 0:
-            self._cand_info['mjd'] = self._file['/cand/search'].attrs['mjd']
-            self._cand_info['dm'] = self._file['/cand/search'].attrs['dm']
-            self._cand_info['snr'] = self._file['/cand/search'].attrs['snr']
-            self._cand_info['width'] = self._file['/cand/search'].attrs['width']
-            self._cand_info['beam'] = self._file['/cand/search'].attrs['beam']
-            self._cand_info['beam_type'] = self._file['/cand/search'].attrs['beam_type']
-            self._cand_info['beam_ra'] = self._file['/cand/search'].attrs['beam_ra']
-            self._cand_info['beam_dec'] = self._file['/cand/search'].attrs['beam_dec']
+            self._cand_info['mjd'] = self._file["/cand/detection"].attrs['mjd']
+            self._cand_info['dm'] = self._file["/cand/detection"].attrs['dm']
+            self._cand_info['snr'] = self._file["/cand/detection"].attrs['snr']
+            self._cand_info['width'] = self._file["/cand/detection"].attrs['width']
+            self._cand_info['beam'] = self._file["/cand/detection"].attrs['beam']
+            self._cand_info['beam_type'] = self._file["/cand/detection"].attrs['beam_type']
+            self._cand_info['beam_ra'] = self._file["/cand/detection"].attrs['beam_ra']
+            self._cand_info['beam_dec'] = self._file["/cand/detection"].attrs['beam_dec']
 
         if len(self._fetch_info) == 0:
-            self._fetch_info['label'] = self._file['/cand/fetch'].attrs['label']
-            self._fetch_info['probability'] = self._file['/cand/fetch'].attrs['probability']
+            self._fetch_info['label'] = self._file["/cand/ml"].attrs['label']
+            self._fetch_info['probability'] = self._file["/cand/ml"].attrs['probability']
 
         if type == "fil":
             return self._fil_header
@@ -316,7 +318,7 @@ class H5Viewer:
             print("Dedispersing to the DM of %.2f" % (dm))
 
         fil_array = self.ReadFil()
-        nchans = self._file['/cand/search/filterbank'].attrs['nchans']
+        nchans = self._file["/cand/detection"].attrs['nchans']
 
     def PlotMask(self):
 
@@ -348,11 +350,11 @@ class H5Viewer:
 
             fmt = lambda x: "{:.2f}".format(x)
 
-            freq_pos = np.linspace(0, self._file['/cand/search/filterbank'].attrs['nchans'], num=5)
-            freq_label = [fmt(label) for label in (self._file['/cand/search/filterbank'].attrs['fch1'] + freq_pos * self._file['/cand/search/filterbank'].attrs['foff']) ]
+            freq_pos = np.linspace(0, self._file["/cand/detection"].attrs['nchans'], num=5)
+            freq_label = [fmt(label) for label in (self._file["/cand/detection"].attrs['fch1'] + freq_pos * self._file["/cand/detection"].attrs['foff']) ]
 
             time_pos = np.linspace(0, fil_array.shape[1], num=5)
-            time_label = [fmt(label) for label in (time_pos * self._file['/cand/search/filterbank'].attrs['tsamp'])]
+            time_label = [fmt(label) for label in (time_pos * self._file["/cand/detection"].attrs['tsamp'])]
 
             if mask_data:
                 mask_dataset = np.asarray(self._file['/cand/search/filterbank/mask'])
@@ -376,7 +378,7 @@ class H5Viewer:
             ax.set_ylabel('Frequency [MHz')
 
             if save_plots:
-                plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file['/cand/search'].attrs['mjd']) + '_dm_' + str(self._file['/cand/search'].attrs['dm']) + '_beam_' + str(self._file['/cand/search'].attrs['beam']) + str(self._file['/cand/search'].attrs['beam_type']) + '_fil.png')
+                plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file["/cand/detection"].attrs['mjd']) + '_dm_' + str(self._file["/cand/detection"].attrs['dm']) + '_beam_' + str(self._file["/cand/detection"].attrs['beam']) + str(self._file["/cand/detection"].attrs['beam_type']) + '_fil.png')
                 plt.savefig(plot_name)
                 fig.clear()
                 plt.close(fig)
@@ -386,15 +388,12 @@ class H5Viewer:
             if plot_all:
                 self.Reset()
 
-    def PlotFetch(self, axis, plot_all=False, save_plots=False, original=False):
+    def PlotML(self, axis, plot_all=False, save_plots=False, original=False):
 
         cand_files = [self._file_name]
 
         if plot_all:
-            if original == False:
-                cand_files = sorted(glob.glob(os.path.join(self._base_dir, 'mjd*.hdf5')))
-            else:
-                cand_files = sorted(glob.glob(os.path.join(self._base_dir, '[!mjd]*.hdf5')))
+            cand_files = sorted(glob.glob(os.path.join(self._base_dir, "*.hdf5")))
 
         for cand_file in cand_files:
             print(cand_file)
@@ -406,21 +405,14 @@ class H5Viewer:
             if axis == 'combined':
                 fig, ax = plt.subplots(1, 2, figsize=(10, 5))
 
-                if original == False:
-                    ax[0].imshow(np.array(self._file['/cand/fetch/dm_time']), aspect='auto', cmap='binary', interpolation='none')
-                    ax[1].imshow(np.array(self._file['/cand/fetch/freq_time']).T, aspect='auto', cmap='binary', interpolation='none')
-                else:
-                    ax[0].imshow(np.array(self._file['/data_dm_time']), aspect='auto', cmap='binary', interpolation='none')
-                    ax[1].imshow(np.array(self._file['/data_freq_time']).T, aspect='auto', cmap='binary', interpolation='none')
+                ax[1].imshow(np.array(self._file["/cand/ml/freq_time"]), aspect='auto', cmap='binary', interpolation='none')
+                ax[0].imshow(np.array(self._file["/cand/ml/dm_time"]), aspect='auto', cmap='binary', interpolation='none')
             
             else:
                 fig = plt.figure(figsize=(5,5))
                 ax = fig.gca()
 
-                if original == False:
-                    plot_dataset = np.array(self._file['/cand/fetch/' + axis + '_time'])   
-                else:
-                    plot_dataset = np.array(self._file['/data_' + axis + '_time'])
+                plot_dataset = np.array(self._file['/cand/fetch/' + axis + '_time'])   
                 
                 # NOTE: Transpose so that time axis is on the x axis
                 if axis == "freq":
@@ -430,22 +422,14 @@ class H5Viewer:
                 
             if axis != 'combined':
 
-                if original == False:
-                    cand_label = str(self._file['/cand/fetch'].attrs['label'])
-                    cand_prob = "{:.4f}".format(self._file['/cand/fetch'].attrs['probability'] * 100) + "%"
-                else:
-                    # NOTE: This information does not exist in the origina HDF5 file
-                    cand_label = "NA"
-                    cand_prob = "NA"
+                cand_label = str(self._file["/cand/ml"].attrs["label"])
+                cand_prob = "{:.4f}".format(self._file["/cand/ml"].attrs["prob"] * 100) + "%"
                 
                 ax.text(0.1, 0.95, 'Label: ' + cand_label, color='firebrick', fontweight='bold',  transform=ax.transAxes)
                 ax.text(0.1, 0.9, 'Probability: ' + cand_prob, color='firebrick', fontweight='bold', transform=ax.transAxes)
             else:
 
-                if original == False:
-                    cand_dm = self._file['/cand/search'].attrs['dm']
-                else:
-                    cand_dm = self._file['/'].attrs['dm']
+                cand_dm = self._file["/cand/detection"].attrs["dm"]
 
                 ax[0].text(0.0, 1.05, 'DM: ' + "{:.2f}".format(cand_dm), color='black', fontweight='bold', transform=ax[0].transAxes)
                 ticks_labels = ["{:.2f}".format(dm) for dm in np.linspace(0, 2 * cand_dm, 6, dtype=np.float32)]
@@ -456,10 +440,7 @@ class H5Viewer:
                 ax[1].set_xlabel('Time sample')
                 ax[1].set_ylabel('Frequency channel')
             if save_plots:
-                if original == False:
-                    plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file['/cand/search'].attrs['mjd']) + '_dm_' + str(self._file['/cand/search'].attrs['dm']) + '_beam_' + str(self._file['/cand/search'].attrs['beam']) + '_fetch_' + axis + '.png')
-                else:
-                    plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file['/'].attrs['tstart']) + '_dm_' + str(self._file['/'].attrs['dm']) + '_fetch_' + axis + '.png')
+                plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file["/cand/detection"].attrs['mjd']) + '_dm_' + str(self._file["/cand/detection"].attrs['dm']) + '_beam_' + str(self._file["/cand/detection"].attrs['beam']) + '_fetch_' + axis + '.png')
 
                 plt.savefig(plot_name)
                 fig.clear()
@@ -494,7 +475,7 @@ class H5Viewer:
             print("Directory %s does not exist!" % (directory))
             return False
 
-        cand_files = sorted(glob.glob(os.path.join(directory, 'mjd*.hdf5')))
+        cand_files = sorted(glob.glob(os.path.join(directory, "*.hdf5")))
         
         if disp == "list":
             negative_labels = 0
@@ -502,20 +483,20 @@ class H5Viewer:
             for cand_file in cand_files:
                 print(cand_file[cand_file.rfind('/') + 1:])
                 with h5.File(cand_file, 'r') as h5_file:
-                    print("\tFilterbank file: %s" % (h5_file['/cand/search/filterbank'].attrs['filterbank']))
+                    print("\tFilterbank file: %s" % (h5_file["/cand/detection"].attrs['filterbank']))
                     if source == "aa" or source == "all":
-                        print("\tMJD: %.6f" % (h5_file['/cand/search'].attrs['mjd']))
-                        print("\tDM: %.2f" % (h5_file['/cand/search'].attrs['dm']))
-                        print("\tWidth: %.4f" % (h5_file['/cand/search'].attrs['width']))
-                        print("\tSNR: %.4f" % (h5_file['/cand/search'].attrs['snr']))
+                        print("\tMJD: %.6f" % (h5_file["/cand/detection"].attrs['mjd']))
+                        print("\tDM: %.2f" % (h5_file["/cand/detection"].attrs['dm']))
+                        print("\tWidth: %.4f" % (h5_file["/cand/detection"].attrs['width']))
+                        print("\tSNR: %.4f" % (h5_file["/cand/detection"].attrs['snr']))
 
                     if source == "fetch" or source == "all":
-                        print("\tLabel: %d" % (h5_file['/cand/fetch'].attrs['label']))
-                        if h5_file['/cand/fetch'].attrs['label'] == 1:
+                        print("\tLabel: %d" % (h5_file["/cand/ml"].attrs['label']))
+                        if h5_file["/cand/ml"].attrs['label'] == 1:
                             positive_labels = positive_labels + 1
                         else: 
                             negative_labels = negative_labels + 1
-                        print("\tProbability: %.4f" % (h5_file['/cand/fetch'].attrs['probability']))
+                        print("\tProbability: %.4f" % (h5_file["/cand/ml"].attrs['probability']))
 
             print("Labels summary:")
             print("Label 1: %d candidates" % (positive_labels))
@@ -532,10 +513,10 @@ class H5Viewer:
 
                 for cand_file in cand_files:
                     with h5.File(cand_file, 'r') as h5_file:
-                        mjds.append(h5_file['/cand/search'].attrs['mjd'])
-                        dms.append(h5_file['/cand/search'].attrs['dm'] + 1)
-                        widths.append(h5_file['/cand/search'].attrs['width'])
-                        snrs.append(h5_file['/cand/search'].attrs['snr'])
+                        mjds.append(h5_file["/cand/detection"].attrs['mjd'])
+                        dms.append(h5_file["/cand/detection"].attrs['dm'] + 1)
+                        widths.append(h5_file["/cand/detection"].attrs['width'])
+                        snrs.append(h5_file["/cand/detection"].attrs['snr'])
 
                 plot_pad = 10.0 / 86400 
 
@@ -558,13 +539,15 @@ class H5Viewer:
                 cbar.set_label('SNR')
                 plt.show(block=False)
 
-            if source == "fetch" or source == "all":
+            if source == "ml" or source == "all":
                 
                 probs = []
 
                 for cand_file in cand_files:
                     with h5.File(cand_file, 'r') as h5_file:
-                        probs.append(h5_file['/cand/fetch'].attrs['probability'])
+                        probs.append(h5_file["/cand/ml"].attrs["prob"][0])
+
+                print(probs)
 
                 fig = plt.figure(figsize=(9,6))
                 ax = fig.gca()                
@@ -588,11 +571,11 @@ class H5Viewer:
 
                 for cand_file in cand_files:
                     with h5.File(cand_file, 'r') as h5_file:
-                        mjds.append(h5_file['/cand/search'].attrs['mjd'])
-                        dms.append(h5_file['/cand/search'].attrs['dm'] + 1)
-                        widths.append(h5_file['/cand/search'].attrs['width'])
-                        snrs.append(h5_file['/cand/search'].attrs['snr'])
-                        labels.append(h5_file['/cand/fetch'].attrs['label'])
+                        mjds.append(h5_file["/cand/detection"].attrs['mjd'])
+                        dms.append(h5_file["/cand/detection"].attrs['dm'] + 1)
+                        widths.append(h5_file["/cand/detection"].attrs['width'])
+                        snrs.append(h5_file["/cand/detection"].attrs['snr'])
+                        labels.append(h5_file["/cand/ml"].attrs['label'])
 
                 plot_pad = 10.0 / 86400 
 
