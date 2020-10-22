@@ -85,14 +85,17 @@ class Interpreter(cmd.Cmd):
         # Parse additional options
         mask_data = False
         plot_all = False
+        extra_into = False
         save_plots = False
         normalise = False
 
         mask_data = self.__check_option(split_args, 'masked')
         normalise = self.__check_option(split_args, 'normalised')
         plot_all = self.__check_option(split_args, 'all')
+        extra_info = self.__check_option(split_args, 'extra')
         save_plots = self.__check_option(split_args, 'save')
         original_fetch = self.__check_option(split_args, 'original')
+
 
         # NOTE: We do not want to potentially display hundreds of candidate plots - just save then to disk
         if plot_all == True:
@@ -116,7 +119,7 @@ class Interpreter(cmd.Cmd):
             else:
                 axis = allowed_types[allowed_passed.index(True)]
 
-            self.__h5viewer.PlotML(axis, plot_all=plot_all, save_plots=save_plots, original=original_fetch)
+            self.__h5viewer.PlotML(axis, plot_all=plot_all, save_plots=save_plots, original=original_fetch, extra_info=extra_info)
 
         elif plot_type == "mask":
             self.__h5viewer.PlotMask()
@@ -388,7 +391,7 @@ class H5Viewer:
             if plot_all:
                 self.Reset()
 
-    def PlotML(self, axis, plot_all=False, save_plots=False, original=False):
+    def PlotML(self, axis, plot_all=False, save_plots=False, original=False, extra_info=False):
 
         cand_files = [self._file_name]
 
@@ -403,11 +406,40 @@ class H5Viewer:
             ax = None
 
             if axis == 'combined':
-                fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+                fig, ax = plt.subplots(1 + extra_info * 1, 2, figsize=(10, 5 + extra_info * 5))
 
-                ax[1].imshow(np.array(self._file["/cand/ml/freq_time"]), aspect='auto', cmap='binary', interpolation='none')
+                ax = ax.flatten()
+
                 ax[0].imshow(np.array(self._file["/cand/ml/dm_time"]), aspect='auto', cmap='binary', interpolation='none')
-            
+                ax[1].imshow(np.array(self._file["/cand/ml/freq_time"]), aspect='auto', cmap='binary', interpolation='none')
+
+                if extra_info:
+                
+                    freq_time = np.array(self._file["/cand/ml/freq_time"])
+                    ft_mean = np.mean(freq_time)
+                    ft_std = np.std(freq_time)
+
+                    dm_time = np.array(self._file["/cand/ml/dm_time"])
+                    dmt_mean = np.mean(dm_time)
+                    dmt_std = np.std(dm_time)
+
+                    ax[2].hist(freq_time.flatten(), bins=100)
+                    ax[2].text(0.05, 0.95, "Mean: " + "{:.2f}".format(ft_mean), color='black', fontweight='bold', transform=ax[2].transAxes)
+                    ax[2].text(0.05, 0.85, "STD: " + "{:.2f}".format(ft_std), color='black', fontweight='bold', transform=ax[2].transAxes)
+                    ax[2].axvline(ft_mean, linestyle="--", color="gray")
+                    ax[2].axvline(ft_mean - ft_std, linestyle=":", color="gray")
+                    ax[2].axvline(ft_mean + ft_std, linestyle=":", color="gray")
+
+                    ax[3].hist(np.array(self._file["/cand/ml/dm_time"]).flatten(), bins=100)
+                    ax[3].text(0.05, 0.95, "Mean: " + "{:.2f}".format(dmt_mean), color='black', fontweight='bold', transform=ax[3].transAxes)
+                    ax[3].text(0.05, 0.85, "STD: " + "{:.2f}".format(dmt_std), color='black', fontweight='bold', transform=ax[3].transAxes)
+                    ax[3].axvline(dmt_mean, linestyle="--", color="gray")
+                    ax[3].axvline(dmt_mean - dmt_std, linestyle=":", color="gray")
+                    ax[3].axvline(dmt_mean + dmt_std, linestyle=":", color="gray")
+
+                    cand_label = str(self._file["/cand/ml"].attrs["label"][0])
+                    cand_prob = "{:.4f}".format(self._file["/cand/ml"].attrs["prob"][0] * 100) + "%"
+                    
             else:
                 fig = plt.figure(figsize=(5,5))
                 ax = fig.gca()
@@ -422,16 +454,20 @@ class H5Viewer:
                 
             if axis != 'combined':
 
-                cand_label = str(self._file["/cand/ml"].attrs["label"])
-                cand_prob = "{:.4f}".format(self._file["/cand/ml"].attrs["prob"] * 100) + "%"
+                cand_label = str(self._file["/cand/ml"].attrs["label"][0])
+                cand_prob = "{:.4f}".format(self._file["/cand/ml"].attrs["prob"][0] * 100) + "%"
                 
                 ax.text(0.1, 0.95, 'Label: ' + cand_label, color='firebrick', fontweight='bold',  transform=ax.transAxes)
                 ax.text(0.1, 0.9, 'Probability: ' + cand_prob, color='firebrick', fontweight='bold', transform=ax.transAxes)
             else:
 
                 cand_dm = self._file["/cand/detection"].attrs["dm"]
+                cand_label = str(self._file["/cand/ml"].attrs["label"][0])
+                cand_prob = "{:.6}".format(self._file["/cand/ml"].attrs["prob"][0])
 
-                ax[0].text(0.0, 1.05, 'DM: ' + "{:.2f}".format(cand_dm), color='black', fontweight='bold', transform=ax[0].transAxes)
+                title = "DM: " + "{:.2f}".format(cand_dm) + ", label/probability: " + cand_label + "/" + cand_prob
+
+                ax[0].text(0.0, 1.05, title, color='black', fontweight='bold', transform=ax[0].transAxes)
                 ticks_labels = ["{:.2f}".format(dm) for dm in np.linspace(0, 2 * cand_dm, 6, dtype=np.float32)]
                 ax[0].set_xlabel('Time sample')
                 ax[0].set_yticks(np.linspace(0, 256, 6))
@@ -490,13 +526,13 @@ class H5Viewer:
                         print("\tWidth: %.4f" % (h5_file["/cand/detection"].attrs['width']))
                         print("\tSNR: %.4f" % (h5_file["/cand/detection"].attrs['snr']))
 
-                    if source == "fetch" or source == "all":
+                    if source == "ml" or source == "all":
                         print("\tLabel: %d" % (h5_file["/cand/ml"].attrs['label']))
-                        if h5_file["/cand/ml"].attrs['label'] == 1:
+                        if h5_file["/cand/ml"].attrs['label'][0] == 1:
                             positive_labels = positive_labels + 1
                         else: 
                             negative_labels = negative_labels + 1
-                        print("\tProbability: %.4f" % (h5_file["/cand/ml"].attrs['probability']))
+                        print("\tProbability: %.4f" % (h5_file["/cand/ml"].attrs['prob']))
 
             print("Labels summary:")
             print("Label 1: %d candidates" % (positive_labels))
@@ -526,6 +562,7 @@ class H5Viewer:
                 ax.ticklabel_format(useOffset=False)
                 ax.set_yscale("log")
                 ax.set_xlim([min(mjds) - plot_pad, max(mjds) + plot_pad])
+                ax.set_ylim([1, max(5001, max(dms) + 10)])
 
                 mjd_values = np.linspace(min(mjds), max(mjds), 5)
                 fmt = lambda x: "{:.6f}".format(x)
@@ -535,9 +572,10 @@ class H5Viewer:
                 ax.set_xticklabels(mdj_strings, fontsize=8)
                 ax.set_xlabel('MJD', fontsize=10)
                 ax.set_ylabel('DM + 1', fontsize=10)
+                ax.text(0.1, 0.95, 'Size -> Width', transform=ax.transAxes)
                 cbar = fig.colorbar(scatter)
                 cbar.set_label('SNR')
-                plt.show(block=False)
+                fig.savefig("dm_mjd_scatter.png")
 
             if source == "ml" or source == "all":
                 
@@ -555,7 +593,7 @@ class H5Viewer:
                 ax.set_xlabel('Probability', fontsize=10)
                 ax.set_ylabel('# counts', fontsize=10)
                 ax.set_xlim([-0.1, 1.1])
-                plt.show(block=False)
+                fig.savefig("probabilities_histogram.png")
 
             if source == "combined" or source == "all":
 
@@ -575,7 +613,7 @@ class H5Viewer:
                         dms.append(h5_file["/cand/detection"].attrs['dm'] + 1)
                         widths.append(h5_file["/cand/detection"].attrs['width'])
                         snrs.append(h5_file["/cand/detection"].attrs['snr'])
-                        labels.append(h5_file["/cand/ml"].attrs['label'])
+                        labels.append(h5_file["/cand/ml"].attrs['label'][0])
 
                 plot_pad = 10.0 / 86400 
 
@@ -599,8 +637,8 @@ class H5Viewer:
                 cbar = fig.colorbar(scatter)
                 cbar.set_ticks([0.25, 0.75])
                 cbar.set_ticklabels(['Label 0', 'Label 1'])
-                plt.show(block=False)
-                
+                fig.savefig("dm_mjd_scatter_with_label.png")
+
     def __GetHeaderValue(self, file, key, type):
         to_read = len(key)
         step_back = -1 * (to_read - 1)
