@@ -1,3 +1,11 @@
+import logging
+
+from PyQt5.QtWidgets import QApplication
+
+from viewer import Viewer
+
+logger = logging.getLogger()
+
 import argparse as ap
 import cmd
 import glob
@@ -335,7 +343,7 @@ class H5Viewer:
 
     def PlotJPG(self):
 
-        plot_dataset = self._file['/cand/search/plot/jpg']
+        plot_dataset = self._file['/cand/detection/plot/jpg']
         im = Image.open(io.BytesIO(plot_dataset[:]))
         im.show()
 
@@ -666,24 +674,27 @@ class H5Viewer:
 def main():
     parser = ap.ArgumentParser(description="View contents of MeerTRAP HDF5 files",
                                 usage="%(prog)s <options>",
-                                epilog="For any bugs, please start an issue at https://gitlab.com/MeerTRAP/frb_plots")
-
-    parser.add_argument("-v", "--verbose", help="Enable verbose mode", action="store_true", required=False)
-    parser.add_argument("-f", "--file", help="Input HDF5 file", required=False, type=str)
-    parser.add_argument("-l", "--list", help="List the contents of the HDF5 file", action="store_true", required=False)
-    parser.add_argument("-i", "--interactive", help="Enable interactive mode", action="store_true", required=False)
+                                epilog="For any bugs, please start an issue at https://github.com/mmalenta/h5viewer")
 
     arguments = parser.parse_args()
 
-    configuration = {
+    """configuration = {
         'verbose': arguments.verbose,
         'file': arguments.file
     }
+    """
+    #h5viewer = H5Viewer(configuration)
 
-    h5viewer = H5Viewer(configuration)
+    #interpreter = Interpreter(h5viewer)
+    #interpreter.cmdloop()
 
-    interpreter = Interpreter(h5viewer)
-    interpreter.cmdloop()
+    app = QApplication([])
+    viewer = Viewer()
+
+    try:
+        app.exec()
+    except Exception as exc:
+        logger.error(exc)
 
 if __name__ == "__main__":
     main()
