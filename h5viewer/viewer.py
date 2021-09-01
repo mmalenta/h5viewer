@@ -91,8 +91,7 @@ class Viewer(QMainWindow):
       directory = open_dir_dialog.selectedFiles()
       files = glob(path.join(directory[0], "*.hdf5"))
       if files:
-        print(files[:50])
-        self._file_display.add_files(files[:30], True)
+        self._file_display.add_files(files, True)
 
   def _click_open_file(self) -> None:
 

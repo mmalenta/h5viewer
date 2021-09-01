@@ -13,7 +13,9 @@ class FileDisplay(QWidget):
     super().__init__()
 
     self._display_layout = QVBoxLayout()
+    self._display_layout.setAlignment(Qt.AlignTop)
     self.setLayout(self._display_layout)
+    
   
   def add_files(self, files : List, reset : bool = False) -> None:
 
@@ -21,5 +23,6 @@ class FileDisplay(QWidget):
 
       self._display_layout.addWidget(FileDetails(file))
         
+    self._display_layout.setSpacing(0)
     self.setLayout(self._display_layout)
 

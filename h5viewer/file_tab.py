@@ -8,6 +8,7 @@ class FileTab(QWidget):
 
     tab_layout = QHBoxLayout()
     self._tab_area = QTabWidget()
+    self._tab_area.setTabsClosable(True)
     tab_layout.addWidget(self._tab_area)
     self.setLayout(tab_layout)
     

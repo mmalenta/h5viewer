@@ -1,8 +1,46 @@
+from PyQt5.QtGui import QIcon, QPixmap
 import h5py as h5
 
-from PyQt5.QtWidgets import QAction, QHBoxLayout, QPushButton, QWidget, QLabel, QVBoxLayout
+from PyQt5.QtWidgets import QAction, QHBoxLayout, QPushButton, QWidget, QLabel, QVBoxLayout, QSpacerItem
 from PyQt5.QtCore import Qt
 from os import path
+
+class PropertyLabel(QWidget):
+
+  def __init__(self, indent, text, icon=None, subgroup=False):
+
+    super().__init__()
+
+    label_layout = QHBoxLayout()
+
+    if indent != 0:
+
+      if subgroup:
+        label_layout.insertSpacing(0, (indent - 1) * 24)
+      else:
+        label_layout.insertSpacing(0, (indent) * 24)
+        
+
+      if subgroup:
+
+        label_subgroup = QLabel()
+        label_subgroup.setPixmap(QPixmap("h5viewer/icons/subgroup_24dp.svg").scaledToWidth(24))
+        label_layout.addWidget(label_subgroup)
+
+    if icon:
+
+      label_icon = QLabel()
+      label_icon.setPixmap(QPixmap(path.join("h5viewer/icons/", icon)).scaledToWidth(24))
+      label_layout.addWidget(label_icon)
+
+    label_text = QLabel(text)
+    label_text.setIndent(6)
+    label_layout.addWidget(label_text)
+
+    label_layout.setContentsMargins(0, 0, 0, 0)
+    label_layout.setSpacing(0)
+    label_layout.setAlignment(Qt.AlignLeft)
+    self.setLayout(label_layout)
 
 class Node():
 
@@ -23,17 +61,24 @@ class FileDetails(QWidget):
     self._detail_layout.setAlignment(Qt.AlignTop)
     
     self._file_layout = QHBoxLayout()
+    self._file_layout.setSpacing(5)
+    self._file_layout.setContentsMargins(5, 10, 5, 0)
+    self._file_layout.setAlignment(Qt.AlignLeft)
 
     self._full_file_name = file_name
     self._short_file_name = path.basename(file_name)
     self._file_label = QPushButton(self._short_file_name)
     self._file_label.setFlat(True)
-    self._file_label.connect(self._print)
-    self._expand_button = QPushButton("+")
+    self._expand_button = QPushButton()
+    self._expand_icon = QIcon("h5viewer/icons/add_black_24dp.svg")
+    self._expand_button.setIcon(self._expand_icon)
+    self._expand_button.setFixedWidth(24)
+    self._expand_button.setFixedHeight(24)
+    self._expand_button.setFlat(False)
     self._expand_button.clicked.connect(self._show_details)
     self._expand_button.setCheckable(True)
-    self._file_layout.addWidget(self._file_label)
     self._file_layout.addWidget(self._expand_button)
+    self._file_layout.addWidget(self._file_label)
     
     self._detail_layout.addLayout(self._file_layout)
     self.setLayout(self._detail_layout)
@@ -43,9 +88,12 @@ class FileDetails(QWidget):
   
     self._details_widget = QWidget()
     self._details_widget_layout = QVBoxLayout()
+    self._details_widget_layout.setContentsMargins(5, 10, 5, 0)
+    self._details_widget_layout.setSpacing(0)
     self._details_widget.setLayout(self._details_widget_layout)
 
     self._detail_layout.addWidget(self._details_widget)
+    self._details_widget.setVisible(False)
 
   def _print(self):
 
@@ -58,9 +106,7 @@ class FileDetails(QWidget):
       if not self._data_read:
 
         self._read_data()
-
         self._show_group(self._details)
-
       self._details_widget.setVisible(True)
 
     else:
@@ -68,22 +114,25 @@ class FileDetails(QWidget):
 
   def _show_group(self, group, indent=0):
 
-    print(group._key)
-    group_label = QLabel(indent * "    " + group._key)
-    self._details_widget_layout.addWidget(group_label)
+    if group._type == "data":
+      data_label = PropertyLabel(indent, group._key, "data_24dp.svg")
+
+      self._details_widget_layout.addWidget(data_label)
+    else:
+      group_label = PropertyLabel(indent, group._key, "group_24dp.svg", subgroup=True)
+      self._details_widget_layout.addWidget(group_label)
 
     if group._metadata != None:
 
-      meta_label = QLabel(indent * "    " + "Metadata:")
+      meta_label = PropertyLabel(indent, "Metadata:")
       self._details_widget_layout.addWidget(meta_label)
 
       for key, value in group._metadata.items():
 
-        meta_label = QLabel(indent * "    " + "* " + key + ": " + str(value))
+        meta_label = PropertyLabel(indent, key + ": " + str(value), "property_24dp.svg")
         self._details_widget_layout.addWidget(meta_label)
 
     for child in group._children:
-      # Use em dash
       self._show_group(child, indent + 1)
 
   def _read_data(self):
@@ -91,8 +140,6 @@ class FileDetails(QWidget):
     h5file = h5.File(self._full_file_name, 'r')
     self._read_key(h5file, '/', self._details)
     self._data_read = True
-
-    print(self._details._children[0]._key)
 
   def _read_key(self, h5file, parent_key, parent_node):
 
@@ -102,10 +149,11 @@ class FileDetails(QWidget):
 
         child_node = Node(current_key)
 
-        if type(h5file[current_key] == h5._hl.dataset.Dataset):
-          child_node.type = "data"
+        if type(h5file[current_key]) == h5._hl.dataset.Dataset:
+          child_node._key = child_node._key[:-1]
+          child_node._type = "data"
         else:
-          child_node.type = "group"
+          child_node._type = "group"
         
         if len(h5file[current_key].attrs) != 0:
           metadata = {}
@@ -114,7 +162,6 @@ class FileDetails(QWidget):
             metadata[attr] = value
 
           child_node._metadata = metadata
-          print(child_node._metadata)
 
         parent_node._children.append(child_node)
 
