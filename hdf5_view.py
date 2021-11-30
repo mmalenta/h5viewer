@@ -107,6 +107,8 @@ class Interpreter(cmd.Cmd):
             self.__h5viewer.PlotFil(mask_data=mask_data, normalise=normalise, plot_all=plot_all, save_plots=save_plots)
         elif plot_type == "ml":
             
+            compare_ml = self.__check_option(split_args, "compare")
+
             allowed_types = ['dm', 'freq']
             allowed_passed = [a in split_args for a in allowed_types]
 
@@ -119,7 +121,7 @@ class Interpreter(cmd.Cmd):
             else:
                 axis = allowed_types[allowed_passed.index(True)]
 
-            self.__h5viewer.PlotML(axis, plot_all=plot_all, save_plots=save_plots, original=original_fetch, extra_info=extra_info)
+            self.__h5viewer.PlotML(axis, plot_all=plot_all, save_plots=save_plots, original=original_fetch, extra_info=extra_info, compare_ml=compare_ml)
 
         elif plot_type == "mask":
             self.__h5viewer.PlotMask()
@@ -391,7 +393,7 @@ class H5Viewer:
             if plot_all:
                 self.Reset()
 
-    def PlotML(self, axis, plot_all=False, save_plots=False, original=False, extra_info=False):
+    def PlotML(self, axis, plot_all=False, save_plots=False, original=False, extra_info=False, compare_ml=False):
 
         cand_files = [self._file_name]
 
@@ -406,12 +408,19 @@ class H5Viewer:
             ax = None
 
             if axis == 'combined':
-                fig, ax = plt.subplots(1 + extra_info * 1, 2, figsize=(10, 5 + extra_info * 5))
+                fig, ax = plt.subplots(1 + (int(compare_ml) + int(extra_info)), 2, figsize=(10, 5 + extra_info * 5), sharex=True)
 
                 ax = ax.flatten()
 
                 ax[0].imshow(np.array(self._file["/cand/ml/dm_time"]), aspect='auto', cmap='binary', interpolation='none')
                 ax[1].imshow(np.array(self._file["/cand/ml/freq_time"]), aspect='auto', cmap='binary', interpolation='none')
+
+                if compare_ml:
+                    freq_time = np.array(self._file["/cand/ml/old/freq_time"])
+                    dm_time = np.array(self._file["/cand/ml/old/dm_time"])
+
+                    ax[2].imshow(dm_time, aspect='auto', cmap='binary', interpolation='none')
+                    ax[3].imshow(freq_time, aspect='auto', cmap='binary', interpolation='none')
 
                 if extra_info:
                 
@@ -423,19 +432,19 @@ class H5Viewer:
                     dmt_mean = np.mean(dm_time)
                     dmt_std = np.std(dm_time)
 
-                    ax[2].hist(freq_time.flatten(), bins=100)
-                    ax[2].text(0.05, 0.95, "Mean: " + "{:.2f}".format(ft_mean), color='black', fontweight='bold', transform=ax[2].transAxes)
-                    ax[2].text(0.05, 0.85, "STD: " + "{:.2f}".format(ft_std), color='black', fontweight='bold', transform=ax[2].transAxes)
-                    ax[2].axvline(ft_mean, linestyle="--", color="gray")
-                    ax[2].axvline(ft_mean - ft_std, linestyle=":", color="gray")
-                    ax[2].axvline(ft_mean + ft_std, linestyle=":", color="gray")
+                    ax[-2].hist(freq_time.flatten(), bins=100)
+                    ax[-2].text(0.05, 0.95, "Mean: " + "{:.2f}".format(ft_mean), color='black', fontweight='bold', transform=ax[2].transAxes)
+                    ax[-2].text(0.05, 0.85, "STD: " + "{:.2f}".format(ft_std), color='black', fontweight='bold', transform=ax[2].transAxes)
+                    ax[-2].axvline(ft_mean, linestyle="--", color="gray")
+                    ax[-2].axvline(ft_mean - ft_std, linestyle=":", color="gray")
+                    ax[-2].axvline(ft_mean + ft_std, linestyle=":", color="gray")
 
-                    ax[3].hist(np.array(self._file["/cand/ml/dm_time"]).flatten(), bins=100)
-                    ax[3].text(0.05, 0.95, "Mean: " + "{:.2f}".format(dmt_mean), color='black', fontweight='bold', transform=ax[3].transAxes)
-                    ax[3].text(0.05, 0.85, "STD: " + "{:.2f}".format(dmt_std), color='black', fontweight='bold', transform=ax[3].transAxes)
-                    ax[3].axvline(dmt_mean, linestyle="--", color="gray")
-                    ax[3].axvline(dmt_mean - dmt_std, linestyle=":", color="gray")
-                    ax[3].axvline(dmt_mean + dmt_std, linestyle=":", color="gray")
+                    ax[-1].hist(np.array(self._file["/cand/ml/dm_time"]).flatten(), bins=100)
+                    ax[-1].text(0.05, 0.95, "Mean: " + "{:.2f}".format(dmt_mean), color='black', fontweight='bold', transform=ax[3].transAxes)
+                    ax[-1].text(0.05, 0.85, "STD: " + "{:.2f}".format(dmt_std), color='black', fontweight='bold', transform=ax[3].transAxes)
+                    ax[-1].axvline(dmt_mean, linestyle="--", color="gray")
+                    ax[-1].axvline(dmt_mean - dmt_std, linestyle=":", color="gray")
+                    ax[-1].axvline(dmt_mean + dmt_std, linestyle=":", color="gray")
 
                     cand_label = str(self._file["/cand/ml"].attrs["label"][0])
                     cand_prob = "{:.4f}".format(self._file["/cand/ml"].attrs["prob"][0] * 100) + "%"
@@ -468,15 +477,34 @@ class H5Viewer:
                 title = "DM: " + "{:.2f}".format(cand_dm) + ", label/probability: " + cand_label + "/" + cand_prob
 
                 ax[0].text(0.0, 1.05, title, color='black', fontweight='bold', transform=ax[0].transAxes)
-                ticks_labels = ["{:.2f}".format(dm) for dm in np.linspace(0, 2 * cand_dm, 6, dtype=np.float32)]
-                ax[0].set_xlabel('Time sample')
+
+                dm_start = self._file["/cand/ml"].attrs["dm_range"]["start"][0]
+                dm_end = self._file["/cand/ml"].attrs["dm_range"]["end"][0]
+
+                ticks_labels = ["{:.2f}".format(dm) for dm in np.linspace(dm_start, dm_end, 6, dtype=np.float32)]
                 ax[0].set_yticks(np.linspace(0, 256, 6))
                 ax[0].set_yticklabels(ticks_labels)
                 ax[0].set_ylabel(r'Trial DM [pc $cm^{-3}$]')
-                ax[1].set_xlabel('Time sample')
                 ax[1].set_ylabel('Frequency channel')
+
+                if compare_ml:
+
+                    cand_dm = self._file["/cand/detection"].attrs["dm"]
+                    cand_label = str(self._file["/cand/ml/old"].attrs["label"][0])
+                    cand_prob = "{:.6}".format(self._file["/cand/ml/old"].attrs["prob"][0])
+
+                    title = "DM: " + "{:.2f}".format(cand_dm) + ", label/probability: " + cand_label + "/" + cand_prob
+                    ax[2].text(0.0, 1.05, title, color='black', fontweight='bold', transform=ax[2].transAxes)
+                    ticks_labels = ["{:.2f}".format(dm) for dm in np.linspace(0, 2 * cand_dm, 6, dtype=np.float32)]
+                    ax[2].set_xlabel('Time sample')
+                    ax[2].set_yticks(np.linspace(0, 256, 6))
+                    ax[2].set_yticklabels(ticks_labels)
+                    ax[2].set_ylabel(r'Trial DM [pc $cm^{-3}$]')
+                    ax[3].set_xlabel('Time sample')
+                    ax[3].set_ylabel('Frequency channel')
+
             if save_plots:
-                plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file["/cand/detection"].attrs['mjd']) + '_dm_' + str(self._file["/cand/detection"].attrs['dm']) + '_beam_' + str(self._file["/cand/detection"].attrs['beam']) + '_fetch_' + axis + '.png')
+                plot_name = os.path.join(self._base_dir, 'mjd_' + str(self._file["/cand/detection"].attrs['mjd']) + '_dm_' + str(self._file["/cand/detection"].attrs['dm']) + '_beam_' + str(self._file["/cand/detection"].attrs['beam_abs']) + '_fetch_' + axis + '.jpg')
 
                 plt.savefig(plot_name)
                 fig.clear()
